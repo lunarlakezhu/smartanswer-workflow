@@ -136,6 +136,8 @@ node pw_download.mjs "<DOI>" "<输出目录>"
 - 至少:`new-library\`(已归档库)、`raw-library\HanaLibrary\zhu-journals.md`(期刊白名单正本)
 - 常用:`raw-library\HanaLibrary\`、`raw-library\DSH-Library\`(进行中主题)
 
+**r1/r2 归档对库的最低要求**(归档脚本 `reference\library-archive.js` 会逐项校验,缺项直接报错、不写任何文件):`new-library\` 下必须有 ①`文献索引.md`(含 `| 编号 | ...` 表头)②`md\` ③`pdf\` ④`归档\` ⑤`最终回答汇总\`;`CHANGELOG.md` 缺失时脚本会自动创建。**建议直接迁移完整的 new-library,不要在新机上手工建库**。
+
 ### 步骤 9 · 填 API Key
 
 dsh 用户目录的密钥文件**本仓库不包含、也绝不加入**。新机第一次启动 dsh 后会提示配置凭据,在 `C:\Users\<你的用户名>\.dsh\.credentials.yaml` 填入你的 `DEEPSEEK_API_KEY` 等。检索后端 OpenAlex 可匿名使用(可选自己的 key 提升配额,注入方式见 papersearch_mcp_server.py 注释)。
@@ -143,6 +145,7 @@ dsh 用户目录的密钥文件**本仓库不包含、也绝不加入**。新机
 ## 4. 改机检查清单(逐文件)
 
 > 原则:**核心路径集中在 2 个文件**(sa-config.json 与 cordis.patch.yml);其余为兜底/文档/辅助。所有文件中 `你的用户名` 占位符都要改成真实用户名。
+> **归档链路是例外,无需改文件**:`library-archive.js` 代码内零硬编码路径(库根、主题目录、论文路径全部来自 manifest 参数),SKILL.md 以 `<skill 目录>\reference\library-archive.js` 相对引用调用,也不依赖 `.dsh\skills\` 全局副本(那只是本机的人工镜像,可拷可不拷)。r1/r2 入库(round=r1/r2)与终答入库(mode:final)在 SKILL.md 第 11 节,流程 = 主 agent 组织 manifest → `node library-archive.js <manifest.json>` → 校验并写库 → stdout 末行 `JSON_RESULT` → 主 agent pwsh 复核 JSON_RESULT 与磁盘一致 → 写 `_progress.yaml`(`r1.libArchived`/`r2.libArchived` = 磁盘计数;stage 仅用固定的 9 个枚举值,不新增)。**唯一前提是步骤 8 的库数据就位 + 本表第一行的 SKILL.md 路径已按新机更新。**
 
 | 文件 | 要改什么 |
 |---|---|
