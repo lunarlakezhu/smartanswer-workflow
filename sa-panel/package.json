@@ -1,0 +1,24 @@
+{
+  "name": "sa-panel",
+  "description": "SmartAnswer 调研进度面板：右侧 details 列展示调研阶段/五闸门/磁盘计数/实时 workflow 活动/文献清单/模型设置；多根扫描（会话工作区+文献库根）自动发现主题，入口为会话头「📊 调研进度」按钮（仅 smartanswer 会话）。",
+  "version": "1.1.0",
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "exports": {
+    ".": "./index.cjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "license": "MIT"
+}

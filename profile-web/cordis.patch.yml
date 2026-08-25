@@ -1,0 +1,63 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+
+# SmartAnswer 科研工作流斜杠命令（用户自装插件，本体见 plugins/smartanswer-commands）：
+#   /smartanswer <主题>  启动文献调研（转交模型进入 skill 流程阶段 0）
+#   /smartanswer 体检    检查 skill「环境依赖」表中的路径是否齐全
+#   /smartanswer 进度    列出文献库内所有调研主题的当前阶段（读 _progress.yaml）
+# 改路径：编辑下面 config 里的值即可，改完几秒内热生效；卸载：删掉本 insert 整段并重启。
+- insert:
+    - id: smartanswer-commands
+      name: 'smartanswer-commands'
+      config:
+        libraryRoot: 'E:\Library-Manage\raw-library\HanaLibrary'
+        checks:
+          gpuBat: 'E:\PDF2md\GPU转换.bat'
+          gpuPy: 'E:\PDF2md\pdf2md_gpu.py'
+          cpuPy: 'E:\PDF2md\pdf2md.py'
+          python: 'C:\Users\你的用户名\AppData\Local\Programs\Python\Python311\python.exe'
+          whitelist: 'E:\Library-Manage\raw-library\HanaLibrary\zhu-journals.md'
+          whitelistSource: 'E:\Qoder files\zhu-journals.md'
+          index: 'E:\Library-Manage\new-library\文献索引.md'
+          edge: 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+
+# SmartAnswer 调研进度面板（用户自装插件，本体见 plugins/sa-panel，文档见同目录 README.md）：
+#   会话头「📊 调研进度」按钮打开右侧 details 列面板（仅 smartanswer 预设会话）；
+#   十阶段步骤条/闸门话术填入/磁盘计数/实时 workflow 活动/论文清单/模型设置。
+# 主题发现（2026-08-23 起）：扫描根 = libraryRoot + extraRoots（可选数组）+ 会话 cwd（面板打开时自动携带），
+# 自定义存放位置的调研不再漏显；绑定解析：持久绑定 → 全库最新进行中主题 → 会话工作区内主题 → 全库最新，
+# 解析即持久化（进行中优先：工作区残留的旧实验主题不得遮蔽库根里正在跑的主题）。
+# 改路径：编辑下面 config 里的值；卸载：删掉本 insert 整段与 package.json 依赖并重启 DSH。
+- insert:
+    - id: sa-panel
+      name: 'sa-panel'
+      config:
+        libraryRoot: 'E:\Library-Manage\raw-library\HanaLibrary'
+        extraRoots: ['E:\Library-Manage\raw-library\DSH-Library']
+        presetPluginsDir: 'C:\Users\你的用户名\.dsh\.agent-presets\smartanswer\plugins'
+
+# 拖入文件窗口（持久插件，本体见本目录 node_modules/drop-window）：
+# 界面右下角「📎 拖入文件」悬浮按钮；拖入的文件自动保存到当前会话工作区
+# .dsh-drops/ 并把绝对路径写入输入框；模型可用 read_dropped_file 工具读取。
+# 卸载：删掉本 insert 整段并重启 DSH。
+- insert:
+    - id: drop-window
+      name: 'drop-window'
+
+# SmartAnswer 文献检索后端（A 方案 · OpenAlex 免费学术 API，替换余额耗尽的 web_search）：
+# 模型工具名 mcp__papersearch__search —— 返回真实论文元数据（title/authors/year/doi/venue/citations/真实摘要），
+# journal 参数按 9 平台过滤（nature|springer|science|sciencedirect|ieee|pnas|sage|iop|wiley）。
+# 本体脚本: C:\Users\你的用户名\.dsh\mcp\papersearch_mcp_server.py（零依赖；search.js v4 默认调用此工具）
+# 回退旧后端：主 agent 调 smartanswer-search workflow 时传 args.searchTool='web_search'。
+# 卸载：删掉本 insert 整段并重启 DSH。
+- insert:
+    - id: mcp-papersearch
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: papersearch
+        transport: stdio
+        command: 'C:/Users/你的用户名/.workbuddy/binaries/python/versions/3.13.12/python.exe'
+        args: ['C:/Users/你的用户名/.dsh/mcp/papersearch_mcp_server.py']
+        env:
+          PYTHONIOENCODING: utf-8   # Windows 下 Python 管道默认 GBK，会因作者名非 GBK 字符崩溃（MCP -32001）

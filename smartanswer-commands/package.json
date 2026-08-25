@@ -1,0 +1,8 @@
+{
+  "name": "smartanswer-commands",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "SmartAnswer research workflow slash commands for the dsh web profile"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "smartanswer-commands": "file:plugins/smartanswer-commands",
+    "sa-panel": "file:plugins/sa-panel",
+    "drop-window": "file:node_modules/drop-window"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ]
+    }
+  }
+}

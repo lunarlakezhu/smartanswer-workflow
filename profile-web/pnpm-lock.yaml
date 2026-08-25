@@ -1,0 +1,22 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      smartanswer-commands:
+        specifier: file:plugins/smartanswer-commands
+        version: file:plugins/smartanswer-commands
+
+packages:
+
+  smartanswer-commands@file:plugins/smartanswer-commands:
+    resolution: {directory: plugins/smartanswer-commands, type: directory}
+
+snapshots:
+
+  smartanswer-commands@file:plugins/smartanswer-commands: {}

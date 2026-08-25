@@ -1,0 +1,18 @@
+# SmartAnswer 一轮文献清单（阶段 4 产物，存档于 r1\round1_list.yaml）
+# 阶段 5 匹配分流后回填 tier / md_path 字段
+topic: "{主题}"
+scenario: "{场景类型: literature_search|concept_explain|method_compare|paper_interpret|research_status|tech_roadmap}"
+axis: "{归纳轴: 能力|任务|硬件|时间线|对比|课题组}"
+sub_questions:
+  - "{递进子问题1}"
+  - "{递进子问题2}"
+papers:
+  - no: 1
+    title: "{完整标题}"
+    doi: "{DOI，形如 10.xxxx/...}"
+    year: "{年份}"
+    journal: "{期刊名}"
+    is_review: false          # true 时标 📖
+    tier: "{阶段5回填: full=库内原文 | notes=笔记型(需下载) | miss=未命中(需下载) | download=需下载}"
+    md_path: "{命中且为全文型时填 md 路径，否则留空}"
+    note: "{一句话简介}"

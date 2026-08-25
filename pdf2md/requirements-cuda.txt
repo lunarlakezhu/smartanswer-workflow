@@ -1,0 +1,37 @@
+# PDF→Markdown 转换环境(MinerU pipeline 后端)· 本机参考版本(2026-08-25 采集)
+# 采集环境:Windows + Python 3.11.9 + NVIDIA RTX 3060(CUDA 11.8)
+#
+# ⚠️ 新机(RTX 5070,Blackwell)注意事项:
+#   1) torch 2.6.0+cu118 不支持 sm_120,必须换 CUDA 12.8+(cu128)的 torch;
+#      安装命令(先装 torch,再装其他):
+#        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   2) MinerU 官方要求 Python >=3.10,<3.14(本机 3.11 最稳,3.10~3.13 均可)。
+#      版本不符时 pip install 会当场报错,不会静默失败。
+#   3) 首次运行自动从 ModelScope 下载模型 PDF-Extract-Kit-1.0(约 1.1 GB,需联网);
+#      模型存到 C:\Users\<你的用户名>\.cache\modelscope\models\,不用随仓库上传。
+#   4) onnxruntime 是 CPU 版即可:MinerU 3.x 的 GPU 加速靠 torch,表格/版面部件走 ONNX CPU。
+#
+# 安装步骤(新机,Python 3.11 环境内):
+#   pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio
+#   pip install -r requirements-cuda.txt
+#
+# 以下为本机实测版本,作为参考;新机最新版(如 mineru 3.4.5)同样满足。
+
+mineru==3.4.4
+mineru_vl_utils==1.0.5
+modelscope==1.38.1
+modelscope-hub==0.1.7
+numpy==1.26.4
+onnxruntime==1.19.2
+pdfminer.six==20260107
+pdfplumber==0.11.10
+pdftext==0.7.1
+pymupdf==1.28.0
+pypdf==6.14.2
+pypdfium2==5.10.1
+sentence-transformers==5.6.0
+transformers==4.57.6
+
+# torch / torchaudio / torchvision 按显卡另行安装(无法固定在 requirements 文件中):
+# 本机参考:torch 2.6.0+cu118 / torchvision 0.21.0+cu118 / torchaudio 2.6.0+cu118
+# 新机参考:torch 2.7+cu128(或更新,以 PyTorch 官网为准)

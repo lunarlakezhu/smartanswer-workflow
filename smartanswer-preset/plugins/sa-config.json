@@ -1,0 +1,10 @@
+{
+  "pythonPath": "C:\\Users\\你的用户名\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  "pdf2mdGpuPath": "E:\\PDF2md\\pdf2md_gpu.py",
+  "pdf2mdPath": "E:\\PDF2md\\pdf2md.py",
+  "whitelistPath": "E:\\Library-Manage\\raw-library\\HanaLibrary\\zhu-journals.md",
+  "whitelistFallback": "E:\\Qoder files\\zhu-journals.md",
+  "libraryRoot": "E:\\Library-Manage\\raw-library\\HanaLibrary\\",
+  "indexFilePath": "E:\\Library-Manage\\new-library\\文献索引.md",
+  "edgePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+}

@@ -1,0 +1,19 @@
+[2026-08-25 08:09:09] 10.1038/nature14539 → NATURE → 无效 379KB 7.5s
+[2026-08-25 08:09:53] 10.1038/s41467-024-48293-2 → NATURE → 成功 2263KB 6.4s
+[2026-08-25 08:10:36] 10.1073/pnas.2314359121 → PNAS → 失败 page.waitForSelector: Timeout 15000ms exceeded.
+Call log:
+[2m  - waiting for lo
+[2026-08-25 08:18:32] 10.1073/pnas.2314359121 → PNAS → 失败 page.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('a:h
+[2026-08-25 08:21:24] 10.1073/pnas.2314359121 → PNAS → 成功 4460KB 14.9s
+[2026-08-25 08:22:06] 10.1126/scirobotics.adr4264 → SCIENCE → 成功 5644KB 25.9s
+[2026-08-25 08:22:49] 10.1109/LRA.2023.3322071 → IEEE → 失败 page.goto: Timeout 30000ms exceeded.
+Call log:
+[2m  - navigating to "https://do
+[2026-08-25 08:24:06] 10.1109/LRA.2023.3322071 → IEEE → 失败 page.waitForSelector: Timeout 15000ms exceeded.
+Call log:
+[2m  - waiting for lo
+[2026-08-25 08:25:49] 10.1109/LRA.2023.3322071 → IEEE → 成功 10745KB 50.1s
+[2026-08-25 08:33:43] 10.1038/nature14539 → NATURE → 成功 2895KB 10.9s
+[2026-08-25 08:33:59] 10.1038/s41467-024-48293-2 → NATURE → 成功 2263KB 4.4s

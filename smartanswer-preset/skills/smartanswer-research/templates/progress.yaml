@@ -1,0 +1,26 @@
+# SmartAnswer 状态机骨架：每主题一份，存于 {主题}\_progress.yaml
+# 规则：每阶段开始前读、结束时写；会话恢复时先读本文件定位阶段，再核对该阶段产物是否齐全
+topic: "{主题}"
+folder: "{实际存放路径：阶段 0 用户确认，默认 E:\\Library-Manage\\raw-library\\HanaLibrary\\{主题}}"
+stage: boot            # boot|decompose|search|match|download|dualread|audit|snowball|final
+subQuestions: []       # 2-5 递进子问题（阶段1-3 填写）
+scenario: ""           # 场景类型
+axis: ""               # 归纳轴
+keywords: []           # 五维展开后的中英关键词
+r1:
+  papers: 0            # 清单论文总数
+  downloaded: 0        # 已到账 PDF 数
+  archived: 0          # 已归档数（须 = papers）
+  libArchived: 0       # 已入 new-library 数（磁盘计数；tier=full 论文计入——分层笔记也算已入库，见 SKILL 第 11 节）
+  locked: false        # 审计锁定后 true
+  forbidden: []        # 禁改清单（锁定后填入，二轮防回退比对用）
+r2:
+  papers: 0
+  archived: 0
+  libArchived: 0       # 已入 new-library 数（磁盘计数；R2 跳过时留 0）
+gates:
+  decompose: ""        # confirmed（闸门1）
+  edge_r1: ""          # approved（闸门2a：Edge 放行）
+  pdf_r1: ""           # awaiting → confirmed（闸门2b：下载完成确认，pwsh 计数与用户报告一致）
+  edge_r2: ""          # approved（闸门3a）
+  pdf_r2: ""           # awaiting → confirmed（闸门3b：R2 下载完成确认）

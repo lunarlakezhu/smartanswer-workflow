@@ -1,0 +1,846 @@
+diff --git a/docs/tool-catalog.i18n.yaml b/docs/tool-catalog.i18n.yaml
+index 3ed16072ca..e2136f2c77 100644
+--- a/docs/tool-catalog.i18n.yaml
++++ b/docs/tool-catalog.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/tool-catalog.md
+-tool-catalog.md: 50563c97c6cd5496871ea7fa52c4823a56b088fd
+-tool-catalog.zh.md: ed0c7e3f70cffbecd3d20a1556bcb0cd4204df00
++tool-catalog.md: 8a9dd3bd9a0cafdaf783b98455672aae9e041e05
++tool-catalog.zh.md: 9fb17d9f4d674c294851bf155b485be257ae936f
+diff --git a/docs/tool-catalog.md b/docs/tool-catalog.md
+index 50563c97c6..8a9dd3bd9a 100644
+--- a/docs/tool-catalog.md
++++ b/docs/tool-catalog.md
+@@ -37,7 +37,7 @@ This table connects model-visible tool names to the plugin package and service s
+ | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
+ | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
+ | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
+-| `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
++| `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.fs (scriptPath reads the body through the session filesystem)`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
+ | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+ 
+ <a id="deepseek-aidsh-tool-ask-user"></a>
+@@ -1737,10 +1737,10 @@ todo_write is session-owned state; UIs render the latest todo/write event as a c
+ 
+ Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
+ 
+-The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result.
++The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). Provide the script body either inline as `script`, or as `scriptPath` — a file path (relative to the session workspace or absolute) whose full text becomes the script body, read through the session filesystem. Pass exactly one of the two. The body is plain JavaScript ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), runs with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result. Prefer `scriptPath` when the script already exists as a file (a checked-in or generated orchestration script): the engine reads it verbatim, so nothing is lost or edited in transcription.
+ 
+ Script-body hooks:
+-- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
++- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), independent `provider`/`model` LLM target overrides (either may be provided alone), `retry` (non-negative integer: a failed child — including a schema call that ends in plain text — is automatically re-dispatched, each attempt counting as one agent), and `tools` ({allow?, deny?} of global tool names scoping the child's toolset, e.g. {deny:["skill"]} to keep one-shot workers off the skill catalog; requires a provider with tool scoping). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
+ - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.
+ - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.
+ - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.
+@@ -1755,7 +1755,11 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
+   "properties": {
+     "script": {
+       "type": "string",
+-      "description": "The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`)."
++      "description": "The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`). Provide exactly one of script or scriptPath."
++    },
++    "scriptPath": {
++      "type": "string",
++      "description": "Path to a file whose full text becomes the workflow script body (relative to the session workspace or absolute; read through the session filesystem). Provide exactly one of script or scriptPath — prefer this when the script already exists as a file, so the engine reads it verbatim."
+     },
+     "meta": {
+       "type": "object",
+@@ -1816,7 +1820,6 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
+     }
+   },
+   "required": [
+-    "script",
+     "meta"
+   ]
+ }
+diff --git a/docs/tool-catalog.zh.md b/docs/tool-catalog.zh.md
+index ed0c7e3f70..9fb17d9f4d 100644
+--- a/docs/tool-catalog.zh.md
++++ b/docs/tool-catalog.zh.md
+@@ -39,7 +39,7 @@
+ | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
+ | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
+ | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
+-| `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
++| `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.fs (scriptPath reads the body through the session filesystem)`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
+ | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
+ 
+ <a id="deepseek-aidsh-tool-ask-user"></a>
+@@ -1741,11 +1741,11 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
+ 
+ 运行用于大规模编排 subagent 的 JavaScript 工作流脚本。当工作会分散到许多相互独立的部分时，请使用此工具，例如审查大量文件、执行迁移、开展多角度研究或对发现进行对抗式验证；此时应将编排写成脚本，而不是逐轮委派。
+ 
+-工作流的身份通过 `meta` 参数以 JSON 形式传入：必填的 `name`（简短 kebab-case）和 `description` 字符串，以及可选的 `whenToUse` 字符串和 `phases` 数组（`{title, detail?, provider?, model?}`）。`script` 参数只能是纯 JavaScript **函数体**，不能是 TypeScript，也不能包含 `export const meta` 语句；meta 是参数而非代码。脚本支持顶层 await；请以 `return <value>` 结尾，该值必须可以 JSON 序列化，并作为此工具的结果。
++工作流的身份通过 `meta` 参数以 JSON 形式传入：必填的 `name`（简短 kebab-case）和 `description` 字符串，以及可选的 `whenToUse` 字符串和 `phases` 数组（`{title, detail?, provider?, model?}`）。脚本函数体既可以用 `script` 内联提供，也可以用 `scriptPath` 提供——一个文件路径（相对会话工作区或绝对路径），其全文经会话文件系统读取后作为脚本函数体；两者二选一。函数体只能是纯 JavaScript，不能是 TypeScript，也不能包含 `export const meta` 语句（meta 是参数而非代码）；支持顶层 await，请以 `return <value>` 结尾，该值必须可以 JSON 序列化，并作为此工具的结果。当脚本已以文件存在时（如入库或生成的编排脚本）优先使用 `scriptPath`：引擎逐字读取，转抄环节不会丢失或改写任何内容。
+ 
+ 脚本函数体提供以下钩子：
+ 
+-- `agent(prompt, opts?): Promise<any>`：运行一个 subagent 直至完成。不提供 `opts.schema` 时，解析为子级最终文本；提供 `opts.schema` 时，它必须是以对象为根、且**只能**使用 type/properties/required/additionalProperties/items/enum/const/oneOf 的 JSON Schema，不支持 pattern/format/数值边界，此时解析为通过校验的对象。子级失败时解析为 `null`，可使用 `.filter(Boolean)` 过滤。其他选项包括 `label`（显示名称）、`phase`（进度组），以及相互独立的 `provider`／`model` LLM（大语言模型）目标覆盖项，两者可单独提供。其他任何选项（`effort`／`isolation`／`agentType`）都会明确报错。
++- `agent(prompt, opts?): Promise<any>`：运行一个 subagent 直至完成。不提供 `opts.schema` 时，解析为子级最终文本；提供 `opts.schema` 时，它必须是以对象为根、且**只能**使用 type/properties/required/additionalProperties/items/enum/const/oneOf 的 JSON Schema，不支持 pattern/format/数值边界，此时解析为通过校验的对象。子级失败时解析为 `null`，可使用 `.filter(Boolean)` 过滤。其他选项包括 `label`（显示名称）、`phase`（进度组）、相互独立的 `provider`／`model` LLM（大语言模型）目标覆盖项（两者可单独提供）、`retry`（非负整数：自身失败的子级——包括以纯文本收尾的 schema 调用——自动重派，每次尝试计为 1 个 agent）、以及 `tools`（{allow?, deny?} 全局工具名，裁剪子级工具面，如 {deny:["skill"]} 让一次性工不再看到 skill catalog；需提供方支持工具裁剪）。其他任何选项（`effort`／`isolation`／`agentType`）都会明确报错。
+ - `pipeline(items, ...stages): Promise<any[]>`：让每个条目分别经过各阶段，阶段之间**没有**屏障；多阶段工作优先使用它。每个阶段接收 `(prev, item, index)`。普通的阶段异常会将该**条目**变为 `null`，并跳过它的剩余阶段。
+ - `parallel(thunks): Promise<any[]>`：并发运行零参数函数并等待**全部**完成。它会形成屏障，仅当某个阶段确实需要汇总全部先前结果时使用。抛出异常的 thunk 解析为 `null`。
+ - `phase(title)`：开始一个进度阶段；`log(message)`：说明进度；`args`：工具调用的 `args` 输入，原样提供。
+@@ -1760,7 +1760,11 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
+   "properties": {
+     "script": {
+       "type": "string",
+-      "description": "The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`)."
++      "description": "The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`). Provide exactly one of script or scriptPath."
++    },
++    "scriptPath": {
++      "type": "string",
++      "description": "Path to a file whose full text becomes the workflow script body (relative to the session workspace or absolute; read through the session filesystem). Provide exactly one of script or scriptPath — prefer this when the script already exists as a file, so the engine reads it verbatim."
+     },
+     "meta": {
+       "type": "object",
+@@ -1821,7 +1825,6 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
+     }
+   },
+   "required": [
+-    "script",
+     "meta"
+   ]
+ }
+diff --git a/packages/fs/tool-fs-search/src/search-core.ts b/packages/fs/tool-fs-search/src/search-core.ts
+index 1dddb99373..36eac65d5a 100644
+--- a/packages/fs/tool-fs-search/src/search-core.ts
++++ b/packages/fs/tool-fs-search/src/search-core.ts
+@@ -119,13 +119,30 @@ function stderrExcerpt(stderrText: string, truncated: boolean): string {
+  * Classify a nonzero-exit `rg` run into the search error vocabulary. There is
+  * no shell layer, so an exit 127 or shell "command not found" text cannot
+  * occur — a launch failure rejects at spawn (see {@link runRipgrep}).
++ *
++ * @param toolName - `glob` or `grep`, used in error messages.
++ * @param exitCode - the nonzero exit code ripgrep reported.
++ * @param stderrText - the raw stderr the run collected.
++ * @param stderrTruncated - whether the stderr tail was cut.
++ * @param path - the literal path argument the command searched, when one was
++ *   given. A wildcard in it is the classic misuse (ripgrep does not expand
++ *   globs in paths), so that failure gets an actionable hint.
+  */
+-function classifyRunFailure(toolName: string, exitCode: number, stderrText: string, stderrTruncated: boolean): SearchError {
++function classifyRunFailure(
++  toolName: string,
++  exitCode: number,
++  stderrText: string,
++  stderrTruncated: boolean,
++  path: string | undefined,
++): SearchError {
+   const stderr = stderrExcerpt(stderrText, stderrTruncated)
+   if (/regex parse error|error parsing glob/i.test(stderr)) {
+     return new SearchError(`${toolName} pattern rejected by ripgrep: ${stderr}`, 'SEARCH_INVALID_PATTERN')
+   }
+-  return new SearchError(`${toolName} search failed (exit ${exitCode})${stderr.length > 0 ? `: ${stderr}` : ''}`, 'SEARCH_FAILED')
++  const wildcardHint = path !== undefined && /[*?]/.test(path)
++    ? ' — the path argument is a literal file/directory and does not expand wildcards; pass the containing directory as path with an include glob, or enumerate files with the glob tool first'
++    : ''
++  return new SearchError(`${toolName} search failed (exit ${exitCode})${stderr.length > 0 ? `: ${stderr}` : ''}${wildcardHint}`, 'SEARCH_FAILED')
+ }
+ 
+ /**
+@@ -268,7 +285,9 @@ export async function runRipgrep(
+     throw new SearchError(`${toolName} search command was killed by signal ${outcome.signal ?? '(unknown)'}`, 'SEARCH_FAILED')
+   }
+   if (outcome.exitCode !== 0 && outcome.exitCode !== 1) {
+-    throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy)
++    // The ripgrep target (if any) is the plain argv element after `--`.
++    const dd = argv.indexOf('--')
++    throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy, dd === -1 ? undefined : argv[dd + 1])
+   }
+   const text = completeStdout(toolName, stdout, rawOutputMaxBytes)
+   return { stdout: text, noMatches: outcome.exitCode === 1, workdir }
+diff --git a/packages/fs/tool-fs-search/tests/tools.spec.ts b/packages/fs/tool-fs-search/tests/tools.spec.ts
+index abb7e75773..47ba71a554 100644
+--- a/packages/fs/tool-fs-search/tests/tools.spec.ts
++++ b/packages/fs/tool-fs-search/tests/tools.spec.ts
+@@ -577,6 +577,26 @@ describe('exit semantics and failure classification', () => {
+     expect(text(result)).toContain('IO error')
+   })
+ 
++  it('a failing search whose path carries a wildcard appends the wildcard hint', async () => {
++    // A wildcard in the path argument is the classic misuse: ripgrep treats it
++    // as a literal filename and fails with an IO error. The hint names the two
++    // working shapes instead of leaving the model to guess.
++    const { ctx, subprocess } = await setup()
++    subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: dir\*.md: IO error: filename syntax is invalid' } })
++    const result = await call(ctx, 'grep', { pattern: 'x', path: 'dir\*.md' })
++    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
++    expect(text(result)).toContain('does not expand wildcards')
++    expect(text(result)).toContain('include glob')
++  })
++
++  it('a failing search whose path has NO wildcard stays hint-free', async () => {
++    const { ctx, subprocess } = await setup()
++    subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: plain-dir: IO error' } })
++    const result = await call(ctx, 'grep', { pattern: 'x', path: 'plain-dir' })
++    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
++    expect(text(result)).not.toContain('wildcards')
++  })
++
+   it('a nonzero exit with EMPTY stderr still reports the exit code', async () => {
+     const { ctx, subprocess } = await setup()
+     subprocess.handler = () => runResult('', { exitCode: 3 })
+diff --git a/packages/workflow/tool-workflow/package.json b/packages/workflow/tool-workflow/package.json
+index 028c1cb8f3..23a0367489 100644
+--- a/packages/workflow/tool-workflow/package.json
++++ b/packages/workflow/tool-workflow/package.json
+@@ -38,6 +38,7 @@
+   "license": "MIT",
+   "peerDependencies": {
+     "@deepseek-ai/dsh-agent": "workspace:^",
++    "@deepseek-ai/dsh-fs": "workspace:^",
+     "@deepseek-ai/dsh-invariants": "workspace:^",
+     "@deepseek-ai/dsh-llm": "workspace:^",
+     "@deepseek-ai/dsh-session": "workspace:^",
+@@ -51,6 +52,7 @@
+   },
+   "devDependencies": {
+     "@deepseek-ai/dsh-agent": "workspace:^",
++    "@deepseek-ai/dsh-fs-local": "workspace:^",
+     "@deepseek-ai/dsh-invariants": "workspace:^",
+     "@deepseek-ai/dsh-llm": "workspace:^",
+     "@deepseek-ai/dsh-session": "workspace:^",
+diff --git a/packages/workflow/tool-workflow/src/index.ts b/packages/workflow/tool-workflow/src/index.ts
+index 446c70ce03..00dedc1ec5 100644
+--- a/packages/workflow/tool-workflow/src/index.ts
++++ b/packages/workflow/tool-workflow/src/index.ts
+@@ -23,11 +23,13 @@ import type {
+   ToolWorkflowAgentEndData, ToolWorkflowAgentStartData,
+   ToolWorkflowRunEndData, ToolWorkflowRunStartData,
+ } from './types.ts'
++// Declaration merge only: makes ctx.fs visible for the scriptPath body read.
++import type {} from '@deepseek-ai/dsh-fs'
+ // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
+ import type {} from '@deepseek-ai/dsh-system-prompt'
+ 
+ export const name = 'tool-workflow'
+-export const inject = ['tools', 'workflowEngine', 'systemPrompt']
++export const inject = ['tools', 'fs', 'workflowEngine', 'systemPrompt']
+ 
+ /** Config: the model-facing tool name plus result rendering caps. */
+ export interface Config {
+@@ -137,10 +139,10 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
+  */
+ const DESCRIPTION = `Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
+ 
+-The workflow's identity rides the \`meta\` parameter as JSON: required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, provider?, model?}\`). The \`script\` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO \`export const meta\` statement — meta is a parameter, not code), running with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result.
++The workflow's identity rides the \`meta\` parameter as JSON: required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, provider?, model?}\`). Provide the script body either inline as \`script\`, or as \`scriptPath\` — a file path (relative to the session workspace or absolute) whose full text becomes the script body, read through the session filesystem. Pass exactly one of the two. The body is plain JavaScript ONLY (NOT TypeScript, and NO \`export const meta\` statement — meta is a parameter, not code), runs with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result. Prefer \`scriptPath\` when the script already exists as a file (a checked-in or generated orchestration script): the engine reads it verbatim, so nothing is lost or edited in transcription.
+ 
+ Script-body hooks:
+-- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), and independent \`provider\`/\`model\` LLM target overrides (either may be provided alone). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
++- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), independent \`provider\`/\`model\` LLM target overrides (either may be provided alone), \`retry\` (non-negative integer: a failed child — including a schema call that ends in plain text — is automatically re-dispatched, each attempt counting as one agent), and \`tools\` ({allow?, deny?} of global tool names scoping the child's toolset, e.g. {deny:["skill"]} to keep one-shot workers off the skill catalog; requires a provider with tool scoping). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
+ - \`pipeline(items, ...stages): Promise<any[]>\` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives \`(prev, item, index)\`. An ordinary stage throw drops that ITEM to \`null\` and skips its remaining stages.
+ - \`parallel(thunks): Promise<any[]>\` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to \`null\`.
+ - \`phase(title)\` — start a progress phase; \`log(message)\` — narrate progress; \`args\` — the tool call's \`args\` input, verbatim.
+@@ -150,7 +152,8 @@ Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps
+ Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.`
+ 
+ type WorkflowCallArgs = {
+-  script: string
++  script?: string
++  scriptPath?: string
+   meta: {
+     name: string
+     description: string
+@@ -165,7 +168,7 @@ function presentWorkflowCall(args: WorkflowCallArgs): ToolCallView {
+   return {
+     card: 'generic',
+     title: `workflow: ${args.meta.name}`,
+-    rawInput: args.script,
++    rawInput: args.script ?? args.scriptPath ?? '',
+   }
+ }
+ 
+@@ -220,8 +223,11 @@ export function apply(ctx: Context, config: Config): void {
+     parameters: {
+       script: {
+         type: 'string',
+-        required: true,
+-        description: 'The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`).',
++        description: 'The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`). Provide exactly one of script or scriptPath.',
++      },
++      scriptPath: {
++        type: 'string',
++        description: 'Path to a file whose full text becomes the workflow script body (relative to the session workspace or absolute; read through the session filesystem). Provide exactly one of script or scriptPath — prefer this when the script already exists as a file, so the engine reads it verbatim.',
+       },
+       meta: {
+         type: 'object',
+@@ -278,11 +284,32 @@ export function apply(ctx: Context, config: Config): void {
+         throw new Error('workflow tool requires a calling agent (exec.agent was undefined)')
+       }
+ 
++      let script: string
++      if (args.scriptPath !== undefined) {
++        if (args.script !== undefined) {
++          throw new Error('workflow accepts either script or scriptPath, not both — pass one')
++        }
++        // The engine consumes a script STRING; scriptPath only changes how the
++        // body arrives. Resolution and the read ride the session filesystem
++        // provider (relative paths resolve against the session cwd), so a
++        // sandboxed backend keeps its own read policy.
++        const sessionCwd = parent.session.header.cwd
++        const target = await ctx.fs.resolve(args.scriptPath, {
++          ...sessionCwd !== undefined ? { cwd: sessionCwd } : {},
++          signal: exec.signal,
++        })
++        script = await ctx.fs.readText(target, exec.signal)
++      } else if (args.script !== undefined) {
++        script = args.script
++      } else {
++        throw new Error('workflow requires either script (the inline body) or scriptPath (a file to read the body from) — pass one')
++      }
++
+       // Meta/body validation failures (META_INVALID/SCRIPT_PARSE) throw
+       // synchronously here and become isError results via the registry — the
+       // model sees the violation list and can correct the call.
+       const run = ctx.workflowEngine.start({
+-        script: args.script,
++        script,
+         meta: args.meta,
+         ...args.args !== undefined ? { args: args.args } : {},
+         parent,
+diff --git a/packages/workflow/tool-workflow/tests/tool-workflow.spec.ts b/packages/workflow/tool-workflow/tests/tool-workflow.spec.ts
+index 938f9a5502..a8de8b7b3a 100644
+--- a/packages/workflow/tool-workflow/tests/tool-workflow.spec.ts
++++ b/packages/workflow/tool-workflow/tests/tool-workflow.spec.ts
+@@ -1,7 +1,11 @@
+ import { describe, expect, it, vi } from 'vitest'
++import { mkdtemp, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
+ import { Context } from '@deepseek-ai/cordis'
+ import Loader from '@deepseek-ai/cordis-plugin-loader'
+ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
++import FsLocal from '@deepseek-ai/dsh-fs-local'
+ import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+ import type { ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+@@ -78,6 +82,7 @@ async function setup(config?: { toolName?: string; maxResultChars?: number }) {
+   const ctx = new Context()
+   await ctx.plugin(SystemPrompt)
+   await ctx.plugin(ToolRuntime)
++  await ctx.plugin(FsLocal)
+   await ctx.plugin(StubEngine)
+   await ctx.plugin(toolWorkflow, config ?? {})
+   const engine = ctx.workflowEngine as StubEngine
+@@ -330,11 +335,36 @@ describe('dsh-tool-workflow', () => {
+     expect(engine.requests.length).toBe(0)
+   })
+ 
+-  it('validates its own arguments via the schema DSL (missing script)', async () => {
++  it('validates the script/scriptPath pair (missing both, or passing both)', async () => {
+     const { ctx, parent } = await setup()
+-    const result = await execute(ctx, {}, { agent: parent })
++    const neither = await execute(ctx, { meta: META }, { agent: parent })
++    expect(neither.isError).toBe(true)
++    expect((neither.content[0] as { text: string }).text).toContain('either script')
++
++    const both = await execute(ctx, { script: SCRIPT, scriptPath: 'wf.js', meta: META }, { agent: parent })
++    expect(both.isError).toBe(true)
++    expect((both.content[0] as { text: string }).text).toContain('not both')
++  })
++
++  it('reads the script body from a scriptPath file through the session filesystem', async () => {
++    const { ctx, engine, parent } = await setup()
++    const dir = await mkdtemp(join(tmpdir(), 'wf-scriptpath-'))
++    const file = join(dir, 'flow.js')
++    const body = 'return { from: "file" }'
++    await writeFile(file, body, 'utf8')
++    const pending = execute(ctx, { scriptPath: file, meta: META }, { agent: parent })
++    await vi.waitFor(() => { expect(engine.requests).toHaveLength(1) })
++    expect(engine.requests[0]).toMatchObject({ script: body, meta: META, parent })
++    engine.settle({ value: { from: 'file' }, stopReason: 'completed', agentsStarted: 0 })
++    const result = await pending
++    expect(result.isError).toBe(false)
++  })
++
++  it('a scriptPath that does not read fails as a tool error without starting a run', async () => {
++    const { ctx, engine, parent } = await setup()
++    const result = await execute(ctx, { scriptPath: join(tmpdir(), 'wf-missing-' + Date.now() + '.js'), meta: META }, { agent: parent })
+     expect(result.isError).toBe(true)
+-    expect(result.error?.info?.code).toBe('INVALID_ARGS')
++    expect(engine.requests).toHaveLength(0)
+   })
+ 
+   it('skips workflow startup when exec.signal is already aborted', async () => {
+@@ -369,6 +399,7 @@ describe('dsh-tool-workflow', () => {
+     const ctx = new Context()
+     await ctx.plugin(SystemPrompt)
+     await ctx.plugin(ToolRuntime)
++    await ctx.plugin(FsLocal)
+     await ctx.plugin(StubEngine)
+     const fiber = await ctx.plugin(toolWorkflow, { toolName: 'orchestrate' })
+     expect(ctx.tools.get('orchestrate')).toBeDefined()
+@@ -406,7 +437,7 @@ describe('dsh-tool-workflow', () => {
+   it('has the namespace-plugin export shape (no stray default)', () => {
+     expect('default' in toolWorkflow).toBe(false)
+     expect(toolWorkflow.name).toBe('tool-workflow')
+-    expect(toolWorkflow.inject).toEqual(['tools', 'workflowEngine', 'systemPrompt'])
++    expect(toolWorkflow.inject).toEqual(['tools', 'fs', 'workflowEngine', 'systemPrompt'])
+     const loader = Object.create(Loader.prototype) as Loader
+     const unwrapped = loader.unwrapExports(toolWorkflow) as Record<string, unknown>
+     expect(unwrapped).toBe(toolWorkflow)
+@@ -420,6 +451,7 @@ describe('dsh-tool-workflow', () => {
+       const ctx = new Context()
+       await ctx.plugin(SystemPrompt)
+       await ctx.plugin(ToolRuntime)
++      await ctx.plugin(FsLocal)
+       await ctx.plugin(SubagentRuntime)
+       ctx.subagents.registerProvider({
+         name: 'spawn',
+diff --git a/packages/workflow/tool-workflow/tsconfig.json b/packages/workflow/tool-workflow/tsconfig.json
+index bfd38e61d4..79a9b2dfe5 100644
+--- a/packages/workflow/tool-workflow/tsconfig.json
++++ b/packages/workflow/tool-workflow/tsconfig.json
+@@ -35,6 +35,12 @@
+     {
+       "path": "../workflow"
+     },
++    {
++      "path": "../../fs/fs"
++    },
++    {
++      "path": "../../sandbox/sandbox"
++    },
+     {
+       "path": "../../runtime-diagnostics/invariants"
+     }
+diff --git a/packages/workflow/workflow-worker-thread/src/host.ts b/packages/workflow/workflow-worker-thread/src/host.ts
+index 394b65ca8a..062e04be92 100644
+--- a/packages/workflow/workflow-worker-thread/src/host.ts
++++ b/packages/workflow/workflow-worker-thread/src/host.ts
+@@ -354,6 +354,7 @@ export class WorkerRun implements WorkflowRun {
+         parent: this.parent,
+         signal: this.controller.signal,
+         ...request.schema !== undefined ? { outputSchema: request.schema } : {},
++        ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
+         ...request.provider !== undefined || request.model !== undefined
+           ? {
+             agentOptions: {
+diff --git a/packages/workflow/workflow-worker-thread/src/runtime.ts b/packages/workflow/workflow-worker-thread/src/runtime.ts
+index 9af909e181..b705692d47 100644
+--- a/packages/workflow/workflow-worker-thread/src/runtime.ts
++++ b/packages/workflow/workflow-worker-thread/src/runtime.ts
+@@ -16,7 +16,7 @@ import * as vm from 'node:vm'
+ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+ import { SessionId } from '@deepseek-ai/dsh-session'
+ import { assertObjectJsonSchema, JsonSchemaError } from '@deepseek-ai/dsh-tools'
+-import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
++import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+ import { isFatalWorkflowError, WorkflowError } from '@deepseek-ai/dsh-workflow'
+ import type {
+   WorkflowAgentEndInfo,
+@@ -36,7 +36,7 @@ export interface ExecutionObserver {
+ }
+ 
+ /** The `agent()` options the script may pass; everything else rejects loud. */
+-const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'provider', 'model'])
++const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'provider', 'model', 'retry', 'tools'])
+ /** Deferred Claude Code options we name explicitly in the rejection message. */
+ const DEFERRED_AGENT_OPTIONS = new Set(['effort', 'isolation', 'agentType'])
+ 
+@@ -55,6 +55,37 @@ function defaultLabel(prompt: string): string {
+   return line.length <= 48 ? line : `${line.slice(0, 47)}…`
+ }
+ 
++/**
++ * Validate the `agent()` `tools` option — the subagent seam's tool restriction
++ * as plain JSON: `{allow?, deny?}` of global tool names, at least one present.
++ * The host-side subagent service re-validates against provider capability.
++ */
++function readToolFilterOption(raw: unknown): ToolRestriction {
++  const shape = 'the tools option is {allow?: string[], deny?: string[]} of global tool names'
++  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
++    throw new WorkflowError(`agent() option "tools" must be an object — ${shape}`, 'INVALID_ARGUMENT')
++  }
++  const record = raw as Record<string, unknown>
++  for (const key of Object.keys(record)) {
++    if (key !== 'allow' && key !== 'deny') {
++      throw new WorkflowError(`agent() option "tools" has unknown key "${key}" — ${shape}`, 'INVALID_ARGUMENT')
++    }
++  }
++  const filter: { allow?: string[]; deny?: string[] } = {}
++  for (const key of ['allow', 'deny'] as const) {
++    const value = record[key]
++    if (value === undefined) continue
++    if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || item.length === 0)) {
++      throw new WorkflowError(`agent() option "tools".${key} must be an array of non-empty tool names`, 'INVALID_ARGUMENT')
++    }
++    filter[key] = value
++  }
++  if (filter.allow === undefined && filter.deny === undefined) {
++    throw new WorkflowError(`agent() option "tools" is empty — ${shape}`, 'INVALID_ARGUMENT')
++  }
++  return filter
++}
++
+ /**
+  * One live script execution inside the worker. Constructed per run by the
+  * session; `drive()` is called exactly once and NEVER rejects — every failure
+@@ -246,98 +277,114 @@ export class WorkflowExecution {
+     if (next) next.resolve()
+   }
+ 
+-  /** The `agent(prompt, opts)` hook. */
++  /**
++   * The `agent(prompt, opts)` hook. `opts.retry` re-dispatches a child that
++   * failed its own run (or ended a schema call in plain text) — each attempt
++   * is a fresh child with its own seq, so lifecycle pairing, caps, and the
++   * agents-started count stay honest; infrastructure faults stay fatal and
++   * exhausted attempts resolve `null` like an ordinary failed child.
++   */
+   private async agent(rawPrompt: unknown, rawOpts: unknown): Promise<unknown> {
+     this.throwIfCancelled()
+     if (typeof rawPrompt !== 'string' || rawPrompt.length === 0) {
+       throw new WorkflowError('agent() requires a non-empty prompt string', 'INVALID_ARGUMENT')
+     }
+     const opts = this.readAgentOptions(rawOpts)
+-    if (this.started >= this.limits.maxTotalAgents) {
+-      throw new WorkflowError(
+-        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise the applicable maxTotalAgents limit if the scale is intentional`,
+-        'AGENT_CAP',
+-      )
+-    }
+-    this.started += 1
+-    const seq = this.started
+     const label = opts.label ?? defaultLabel(rawPrompt)
+     const phase = opts.phase ?? this.currentPhase
++    const maxAttempts = 1 + (opts.retry ?? 0)
+ 
+     await this.acquireSlot()
+     try {
+-      // Re-check after the acquire: the await yields at least one microtask
+-      // tick even when a slot is free, and a queued waiter resumes a tick
+-      // after its release — a cancel() landing in either window must not
+-      // reach the host (which would refuse anyway, but the refusal reads as
+-      // a start failure rather than the cancellation it is).
+-      this.throwIfCancelled()
+-      let run: ChildHandle
+-      try {
+-        run = await this.children.startAgent({
+-          prompt: rawPrompt,
+-          ...opts.schema !== undefined ? { schema: opts.schema } : {},
+-          ...opts.provider !== undefined ? { provider: opts.provider } : {},
+-          ...opts.model !== undefined ? { model: opts.model } : {},
+-        })
+-      } catch (error: unknown) {
+-        // The host refuses starts once the run is cancelled — a refusal that
+-        // races our own cancel state must read as the cancellation it is,
+-        // not as a broken contract.
+-        if (this.isCancelled()) throw this.cancelledError()
+-        throw new WorkflowError(`agent() could not start a child: ${renderThrown(error)}`, 'AGENT_START', { cause: error })
+-      }
+-      // The start round-trip yields to the event loop, so a cancel CAN land
+-      // between the host starting the child and this continuation running —
+-      // wind the fresh child down instead of leaving it live behind a dead
+-      // script.
+-      if (this.isCancelled()) {
+-        await run.dispose()
+-        throw this.cancelledError()
+-      }
+-      const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: SessionId(run.id) }
+-      this.observer.agentStart(info)
+-      try {
+-        let result
++      // One slot serves every attempt of this call; concurrency bounds
++      // in-flight agent() calls, not their retries.
++      for (let attempt = 1; ; attempt++) {
++        /* v8 ignore next -- re-check guard: cancellation racing a retry continuation */
++        this.throwIfCancelled()
++        if (this.started >= this.limits.maxTotalAgents) {
++          throw new WorkflowError(
++            `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise the applicable maxTotalAgents limit if the scale is intentional`,
++            'AGENT_CAP',
++          )
++        }
++        this.started += 1
++        const seq = this.started
++        let run: ChildHandle
+         try {
+-          result = await run.result
++          run = await this.children.startAgent({
++            prompt: rawPrompt,
++            ...opts.schema !== undefined ? { schema: opts.schema } : {},
++            ...opts.provider !== undefined ? { provider: opts.provider } : {},
++            ...opts.model !== undefined ? { model: opts.model } : {},
++            ...opts.toolFilter !== undefined ? { toolFilter: opts.toolFilter } : {},
++          })
+         } catch (error: unknown) {
+-          // A rejected child result is an INFRASTRUCTURE fault relayed by the
+-          // host — distinct from a child that failed and resolved. Pair the
+-          // lifecycle before propagating, and propagate FATAL: an ordinary
+-          // throw would dissolve to a per-item null inside the combinators,
+-          // and a broken provider must not read as a failed child.
+-          if (this.isCancelled()) {
+-            this.observer.agentEnd({ ...info, outcome: 'cancelled' })
+-            throw this.cancelledError()
+-          }
+-          this.observer.agentEnd({ ...info, outcome: 'failed' })
+-          throw new WorkflowError(`child agent run failed: ${renderThrown(error)}`, 'AGENT_RESULT', { cause: error })
++          // The host refuses starts once the run is cancelled — a refusal that
++          // races our own cancel state must read as the cancellation it is,
++          // not as a broken contract.
++          if (this.isCancelled()) throw this.cancelledError()
++          throw new WorkflowError(`agent() could not start a child: ${renderThrown(error)}`, 'AGENT_START', { cause: error })
+         }
+-        if (result.stopReason === 'completed') {
+-          if (opts.schema !== undefined) {
+-            // The provider honored outputSchema (capability-gated at start), so
+-            // a completed run without a structured value is a child failure.
+-            if (result.structured === undefined) {
+-              this.observer.agentEnd({ ...info, outcome: 'failed' })
+-              return null
+-            }
+-            this.observer.agentEnd({ ...info, outcome: 'completed' })
+-            return result.structured
+-          }
+-          this.observer.agentEnd({ ...info, outcome: 'completed' })
+-          return outputText(result.output)
+-        }
+-        // A cancelled RUN kills the script; a child that failed for its own
+-        // reasons resolves null (scripts .filter(Boolean) per the CC contract).
++        // The start round-trip yields to the event loop, so a cancel CAN land
++        // between the host starting the child and this continuation running —
++        // wind the fresh child down instead of leaving it live behind a dead
++        // script.
+         if (this.isCancelled()) {
+-          this.observer.agentEnd({ ...info, outcome: 'cancelled' })
++          await run.dispose()
+           throw this.cancelledError()
+         }
+-        this.observer.agentEnd({ ...info, outcome: 'failed' })
+-        return null
+-      } finally {
+-        await run.dispose()
++        const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: SessionId(run.id) }
++        this.observer.agentStart(info)
++        let retryable = false
++        let value: unknown
++        try {
++          let result
++          try {
++            result = await run.result
++          } catch (error: unknown) {
++            // A rejected child result is an INFRASTRUCTURE fault relayed by the
++            // host — distinct from a child that failed and resolved. Pair the
++            // lifecycle before propagating, and propagate FATAL: an ordinary
++            // throw would dissolve to a per-item null inside the combinators,
++            // and a broken provider must not read as a failed child.
++            if (this.isCancelled()) {
++              this.observer.agentEnd({ ...info, outcome: 'cancelled' })
++              throw this.cancelledError()
++            }
++            this.observer.agentEnd({ ...info, outcome: 'failed' })
++            throw new WorkflowError(`child agent run failed: ${renderThrown(error)}`, 'AGENT_RESULT', { cause: error })
++          }
++          if (result.stopReason === 'completed') {
++            if (opts.schema !== undefined) {
++              // The provider honored outputSchema (capability-gated at start), so
++              // a completed run without a structured value is a child failure.
++              if (result.structured === undefined) {
++                this.observer.agentEnd({ ...info, outcome: 'failed' })
++                retryable = true
++              } else {
++                this.observer.agentEnd({ ...info, outcome: 'completed' })
++                value = result.structured
++              }
++            } else {
++              this.observer.agentEnd({ ...info, outcome: 'completed' })
++              value = outputText(result.output)
++            }
++          } else if (this.isCancelled()) {
++            // A cancelled RUN kills the script; a child that failed for its own
++            // reasons resolves null (scripts .filter(Boolean) per the CC contract).
++            this.observer.agentEnd({ ...info, outcome: 'cancelled' })
++            throw this.cancelledError()
++          } else {
++            this.observer.agentEnd({ ...info, outcome: 'failed' })
++            retryable = true
++          }
++        } finally {
++          await run.dispose()
++        }
++        if (!retryable) return value
++        // Retries re-dispatch failed children; exhausted attempts resolve null
++        // exactly like an ordinary failed child.
++        if (attempt >= maxAttempts) return null
+       }
+     } finally {
+       this.releaseSlot()
+@@ -350,6 +397,8 @@ export class WorkflowExecution {
+     phase?: string
+     provider?: string
+     model?: string
++    retry?: number
++    toolFilter?: ToolRestriction
+     schema?: ObjectJsonSchema
+   } {
+     if (rawOpts === undefined) return {}
+@@ -368,15 +417,19 @@ export class WorkflowExecution {
+     for (const key of Object.keys(record)) {
+       if (SUPPORTED_AGENT_OPTIONS.has(key)) continue
+       if (DEFERRED_AGENT_OPTIONS.has(key)) {
+-        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
++        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, provider, model, retry, tools)`, 'UNSUPPORTED_OPTION')
+       }
+-      throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
++      throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, provider, model, retry, tools)`, 'UNSUPPORTED_OPTION')
+     }
+     for (const key of ['label', 'phase', 'provider', 'model'] as const) {
+       if (record[key] !== undefined && typeof record[key] !== 'string') {
+         throw new WorkflowError(`agent() option "${key}" must be a string`, 'INVALID_ARGUMENT')
+       }
+     }
++    if (record.retry !== undefined && (typeof record.retry !== 'number' || !Number.isInteger(record.retry) || record.retry < 0)) {
++      throw new WorkflowError('agent() option "retry" must be a non-negative integer', 'INVALID_ARGUMENT')
++    }
++    const toolFilter = record.tools !== undefined ? readToolFilterOption(record.tools) : undefined
+     let schema: ObjectJsonSchema | undefined
+     if (record.schema !== undefined) {
+       try {
+@@ -393,6 +446,8 @@ export class WorkflowExecution {
+       ...record.phase !== undefined ? { phase: record.phase as string } : {},
+       ...record.provider !== undefined ? { provider: record.provider as string } : {},
+       ...record.model !== undefined ? { model: record.model as string } : {},
++      ...record.retry !== undefined ? { retry: record.retry } : {},
++      ...toolFilter !== undefined ? { toolFilter } : {},
+       ...schema !== undefined ? { schema } : {},
+     }
+   }
+diff --git a/packages/workflow/workflow-worker-thread/src/types.ts b/packages/workflow/workflow-worker-thread/src/types.ts
+index b764e022ce..a80085837d 100644
+--- a/packages/workflow/workflow-worker-thread/src/types.ts
++++ b/packages/workflow/workflow-worker-thread/src/types.ts
+@@ -6,7 +6,7 @@
+  */
+ 
+ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+-import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
++import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+ import type { WorkflowMeta } from '@deepseek-ai/dsh-workflow'
+ 
+ /**
+@@ -46,6 +46,12 @@ export interface ChildStartRequest {
+   provider?: string
+   /** The per-child model override, if the call passed one. */
+   model?: string
++  /**
++   * The per-child tool scoping (`agent()` `tools` option), if the call passed
++   * one. The subagent service rejects it for providers without the
++   * `toolFilter` capability, loud at the child's start.
++   */
++  toolFilter?: ToolRestriction
+ }
+ 
+ /**
+diff --git a/packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.spec.ts b/packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.spec.ts
+index 5130071362..de0e9865cf 100644
+--- a/packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.spec.ts
++++ b/packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.spec.ts
+@@ -234,6 +234,79 @@ describe('dsh-workflow-worker-thread', () => {
+       expect(provider.runs[0]!.request.agentOptions).toEqual({ provider: 'openai' })
+     })
+ 
++    it('agent({retry}) re-dispatches a failed child; each attempt is its own agent', async () => {
++      const { ctx, parent, provider } = await setup({
++        reply: (_request, index) => index === 0
++          ? { output: [], stopReason: 'error' }
++          : text('second try'),
++      })
++      const events: number[] = []
++      ctx.on('workflow/agent-end', (_info, agent) => { events.push(agent.seq) })
++
++      const result = await run(ctx, parent, scripted("return await agent('flaky', { retry: 1 })"))
++
++      expect(result.stopReason).toBe('completed')
++      expect(result.value).toBe('second try')
++      expect(result.agentsStarted).toBe(2)
++      expect(provider.runs).toHaveLength(2)
++      expect(provider.runs.every(r => r.disposed)).toBe(true)
++      // Distinct seqs per attempt keep the lifecycle pairing invariants honest.
++      expect(events).toEqual([1, 2])
++    })
++
++    it('agent({retry}) re-dispatches a schema call that ended in plain text', async () => {
++      const { ctx, parent, provider } = await setup({
++        reply: (_request, index) => index === 0
++          ? { output: [{ type: 'text', text: 'plain text instead of structured output' }], stopReason: 'completed' }
++          : { output: [], structured: { ok: true }, stopReason: 'completed' },
++      })
++      const result = await run(ctx, parent, scripted(`
++        const v = await agent('structured only', { retry: 1, schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } })
++        return v.ok
++      `))
++
++      expect(result.value).toBe(true)
++      expect(result.agentsStarted).toBe(2)
++      expect(provider.runs).toHaveLength(2)
++    })
++
++    it('agent({retry}) exhausts attempts to null without killing the script', async () => {
++      const { ctx, parent, provider } = await setup({
++        reply: () => ({ output: [], stopReason: 'error' }),
++      })
++      const result = await run(ctx, parent, scripted(`
++        const v = await agent('always fails', { retry: 2 })
++        return v === null ? 'null as contracted' : 'unexpected'
++      `))
++
++      expect(result.value).toBe('null as contracted')
++      expect(result.agentsStarted).toBe(3)
++      expect(provider.runs).toHaveLength(3)
++    })
++
++    it('agent({tools}) forwards the tool scoping to the provider', async () => {
++      const { ctx, parent, provider } = await setup()
++      const result = await run(ctx, parent, scripted("return await agent('work', { tools: { deny: ['skill'] } })"))
++
++      expect(result.value).toBe('stub reply')
++      expect(provider.runs[0]!.request.toolFilter).toEqual({ deny: ['skill'] })
++    })
++
++    it.each([
++      ['retry is negative', { script: "return await agent('x', { retry: -1 })" }],
++      ['retry is not an integer', { script: "return await agent('x', { retry: '1' })" }],
++      ['tools is not an object', { script: "return await agent('x', { tools: 'skill' })" }],
++      ['tools is empty', { script: "return await agent('x', { tools: {} })" }],
++      ['tools has an unknown key', { script: "return await agent('x', { tools: { hide: ['skill'] } })" }],
++      ['tools.allow is not a string array', { script: "return await agent('x', { tools: { allow: 'skill' } })" }],
++    ])('rejects invalid agent() options loudly: %s', async (_name, source) => {
++      const { ctx, parent } = await setup()
++      const result = await run(ctx, parent, scripted(source.script))
++
++      expect(result.stopReason).toBe('error')
++      expect(result.error).toContain('agent() option')
++    })
++
+     it('a start-request provider override selects every child without changing the engine default', async () => {
+       const { ctx, parent, provider } = await setup()
+       const selected = new StubProvider('selected', () => text('selected reply'))
+diff --git a/scripts/gen-tool-catalog.ts b/scripts/gen-tool-catalog.ts
+index 005eb4aef9..3926b08ea5 100644
+--- a/scripts/gen-tool-catalog.ts
++++ b/scripts/gen-tool-catalog.ts
+@@ -522,12 +522,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
+     pkg: '@deepseek-ai/dsh-tool-workflow',
+     dir: 'tool-workflow',
+     source: 'packages/workflow/tool-workflow/src/index.ts',
+-    requires: ['ctx.tools', 'ctx.workflowEngine', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents the script children)'],
++    requires: ['ctx.tools', 'ctx.fs (scriptPath reads the body through the session filesystem)', 'ctx.workflowEngine', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents the script children)'],
+     writes: ['tool/call', 'tool/result'],
+     async mount(ctx) {
+-      // The tool injects `workflows`; boot the vm engine over a scripted
+-      // subagent provider to satisfy it. The schema does not depend on which
+-      // provider backs the engine.
++      // The tool injects `workflows` and `fs` (the scriptPath body read); boot
++      // the vm engine over a scripted subagent provider and the local backend
++      // to satisfy both. The schema does not depend on which provider backs
++      // the engine or the filesystem.
++      await ctx.plugin(LocalFileSystem)
+       await ctx.plugin(SubagentRuntime)
+       registerCatalogSubagentProvider(ctx, 'mock')
+       await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
