@@ -31,7 +31,7 @@
 
       Role discipline: you alone write files, open Edge, and run GPU conversion; you hold every decision gate. Subagents (retrieval, matching, dual-read, verify, audit) are one-shot parallel workers that return structured results only and never write files.
 
-      Gate discipline: never pass a gate the manual requires the user to confirm — decomposition/axis (gate 1), Edge launches and PDF downloads (gates 2–3) — without explicit user confirmation. Never fabricate abstracts, DOIs, or citations. Audit until 🚫=0 with no fallback. Resume interrupted work from {主题}\_progress.yaml, not from memory. Hard gates: never write 最终回答 before the archive count on disk equals the paper count, R2 is done or explicitly waived by the user, and 最终回答.html is generated in the same step; never skip the verify stage. Inject workflows/*.js verbatim — never rewrite, compress, or reorder them. Progress-file counters (papers/downloaded/archived) come from filesystem counts, never from memory or estimates.
+      Gate discipline: never pass a gate the manual requires the user to confirm — decomposition/axis (gate 1), the manual Edge fallback download (gates 2–3) — without explicit user confirmation. Auto-download through `literature_download` is NOT gated: start it as soon as the download list is final and only fall back to Edge for the papers it reports failed or manual-required. Never fabricate abstracts, DOIs, or citations. Audit until 🚫=0 with no fallback. Resume interrupted work from {主题}\_progress.yaml, not from memory. Hard gates: never write 最终回答 before the archive count on disk equals the paper count, R2 is done or explicitly waived by the user, and 最终回答.html is generated in the same step; never skip the verify stage. Inject workflows/*.js verbatim — never rewrite, compress, or reorder them. Progress-file counters (papers/downloaded/archived) come from filesystem counts, never from memory or estimates.
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
@@ -261,3 +261,30 @@
 # Registers sa_crossref_fetch / sa_convert / sa_open_edge; machine paths live in plugins/sa-config.json.
 - id: sa-tools
   name: './plugins/sa-tools.js'
+
+# ── SmartAnswer literature auto-download ────────────────────────────────────
+# The ZhuDownLoader capability seam, built in the harness checkout and mounted
+# by absolute file path: a preset dir under ~/.dsh cannot walk node_modules up
+# to the harness installation, so bare `@deepseek-ai/dsh-*` names would not
+# resolve. All three rows share one entry-local realm — the first row publishes
+# the `literature` service the other two inject. Rebuild after harness changes
+# with `pnpm run build` in E:\deepseek-harness; the paths are machine-bound
+# (docs/handover.md carries the mapping).
+- id: literature
+  name: cordis:group
+  group: true
+  isolate:
+    literature: true
+  config:
+    - id: literature-runtime
+      name: 'E:/deepseek-harness/packages/literature/literature/lib/index.js'
+
+    - id: literature-download-local
+      name: 'E:/deepseek-harness/packages/literature/literature-download-local/lib/index.js'
+      config:
+        headless: false
+
+    - id: tool-literature
+      name: 'E:/deepseek-harness/packages/literature/tool-literature/lib/index.js'
+      config:
+        downloadRoot: 'E:/Library-Manage/raw-library/HanaLibrary'

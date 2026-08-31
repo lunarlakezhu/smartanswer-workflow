@@ -16,11 +16,13 @@
 | 宿主插件 | `sa-panel/`、`smartanswer-commands/` | 常驻能力:文献进度面板(十阶段步骤条、闸门卡片)+ `/smartanswer` 斜杠命令 |
 | 检索后端 | `papersearch-mcp/` | OpenAlex 学术搜索 MCP 服务器(零第三方依赖) |
 | 转换器 | `pdf2md/` | MinerU PDF→Markdown(pdf2md.py CPU / pdf2md_gpu.py GPU) |
-| 下载器 | `zhu-downloader/` | Nature/PNAS/Science/IEEE/SAGE/Elsevier 文献 PDF 自动下载 |
+| 下载器 | `zhu-downloader/` | 独立/网页版文献 PDF 下载器(手动备用通道);同一能力的 dsh 插件形态(literature 三包)在 dsh 仓库内,由预设直接挂载 |
 
-工作流 = 十阶段状态机(启动确认 → 拆解闸门 → 11 路检索 → verify 验身 → 库内匹配 → 下载+GPU 转换闸门 → 双读精读 → 审计对抗 → R2 雪球闸门 → 终答),每一主题一个 `_progress.yaml`。
+工作流 = 十阶段状态机(启动确认 → 拆解闸门 → 11 路检索 → verify 验身 → 库内匹配 → **自动下载(失败篇 Edge 兜底闸门)** → GPU 转换 → 双读精读 → 审计对抗 → R2 雪球闸门 → 终答),每一主题一个 `_progress.yaml`。
 
 **两个硬前提**:① dsh 需含 WP3 改动(见 dsh-compat.md,否则编排脚本里 `retry`/`tools.deny`/`scriptPath` 非法或不生效,工作流会坏);② Windows + NVIDIA GPU + 自己的 DeepSeek API Key。
+
+**自动下载前提(2026-08-31 起)**:阶段 6 第一通道是 `literature_download` 工具(ZhuDownLoader 的 dsh 插件形态,Nature/Springer/PNAS/Science/IEEE/Wiley/SAGE 自动下载,Elsevier 按设计转人工)。它以**绝对路径挂载源机 dsh 仓库的构建产物**(`E:\deepseek-harness\packages\literature\*\lib\`,见 smartanswer-preset\agent.cordis.yml 的 `literature` 组),源机 master 已含该三包与 WP3;**上游公共仓库两者皆无**——新机若从 GitHub 克隆 upstream,自动下载与编排脚本都不可用,需从源机整仓迁移 dsh(或等推送权限解决后从公共源获取)。
 
 ## 2. 仓库 ←→ 本机来源对照表
 
@@ -76,7 +78,7 @@ python --version
   ```
   以后 MinerU 用 3.11,别的不管。
 
-### 步骤 2 · 安装 dsh(含 WP3)
+### 步骤 2 · 安装 dsh(含 WP3 与 literature 自动下载)
 
 ```powershell
 git clone https://github.com/deepseek-ai/deepseek-harness.git
@@ -85,6 +87,11 @@ pnpm install
 pnpm build
 ```
 然后按 [dsh-compat.md](dsh-compat.md) 处理 **WP3**(两条路:打 `patches\` 里的补丁,或等/协助上游合入)。**不处理则 smartanswer 编排脚本跑不起来或退化**,这是唯一无法通过改配置绕过的项。
+
+**literature 自动下载三包**(上游没有,2026-08-31 起只存在于源机本地 master):从源机把 `packages/literature/`、`packages/bundle/literature-app/` 整目录连同提交迁移到新机 dsh 仓库(或整仓拷贝),再 `pnpm install && pnpm build` 产出 `lib\`;随后**必须重做本步构建**,预设的绝对路径才指向存在的产物。浏览器策略(PNAS/Science/IEEE/Wiley)另需一次:
+```powershell
+npx playwright install chromium
+```
 
 ### 步骤 3 · 落位 smartanswer 预设
 
@@ -153,9 +160,9 @@ dsh 用户目录的密钥文件**本仓库不包含、也绝不加入**。新机
 | `profile-web\cordis.patch.yml` | ① smartanswer-commands 段:libraryRoot + checks 8 项(与上面同一批路径);② sa-panel 段:libraryRoot、extraRoots、presetPluginsDir;③ mcp-papersearch 段:`command` 改成新机 Python |
 | `smartanswer-commands\index.js` | `DEFAULTS` 与 patch 相同(通常**不动**——patch config 会覆盖它;只有去掉 patch 时才需要改) |
 | `sa-panel\index.cjs` | `DEFAULTS.libraryRoot`(同上,通常不动);`test-client.cjs` 里两个测试路径仅本机测试用,可不动 |
-| `smartanswer-preset\skills\smartanswer-research\SKILL.md` | 「环境依赖」表(8 行)与正文中出现的 `E:\...` 路径:按新机实际位置改;这是模型的执行依据,`/smartanswer 体检` 也按此表检查 |
+| `smartanswer-preset\skills\smartanswer-research\SKILL.md` | 「环境依赖」表(9 行)与正文中出现的 `E:\...` 路径:按新机实际位置改;这是模型的执行依据,`/smartanswer 体检` 也按此表检查 |
 | `smartanswer-preset\plugins\sa-tools.js` | 无需改(相对引用 `./sa-config.json`、`../skills/...`) |
-| `smartanswer-preset\agent.cordis.yml` | 无需改(相对路径解析) |
+| `smartanswer-preset\agent.cordis.yml` | **`literature` 组三行是绝对路径**:`E:/deepseek-harness/packages/literature/*/lib/index.js` 改为新机 dsh 仓库实际路径;`tool-literature` 的 `downloadRoot` 改为新机库根;其余行相对解析无需动 |
 | `pdf2md\*.bat`(4 个) | 每处 `C:\Users\...\python.exe` 改为新机 Python 路径;`DEFAULT_OUT`(默认输出目录)按需改 |
 | `zhu-downloader\pw_download.mjs` | 顶部 `OUT_DIR` 默认值(`E:\Qoder files\download study`)按需改 |
 | `启动DSH.bat` | `cd /d E:\deepseek-harness` → 新机 dsh 实际路径 |
@@ -193,13 +200,14 @@ dsh 用户目录的密钥文件**本仓库不包含、也绝不加入**。新机
 
 ### 6.3 端到端小轮验收
 
-开一个新主题(小规模)走完整链路:阶段 0 确认 → 检索(面板/检索后端返回真实数据)→ 下载(闸门确认)→ GPU 转换 → 双读 → 审计 → 入库 → 面板计数。核对重点:
+开一个新主题(小规模)走完整链路:阶段 0 确认 → 检索(面板/检索后端返回真实数据)→ **自动下载(literature_download 到账;构造一篇必失败 DOI 验证 Edge 兜底闸门与 download_failed.txt)**→ GPU 转换 → 双读 → 审计 → 入库 → 面板计数。核对重点:
 
 | 检查点 | 通过标准 |
 |---|---|
 | workflow 注入脚本 | 与 `workflows\*.js` 逐字一致(或直接用 scriptPath) |
 | 子代理 | 开局无 skill 加载;失败自动重派(retry) |
 | 磁盘计数 | `_progress.yaml` 计数与磁盘文件数一致 |
+| 自动下载 | `r1\` 出现 PDF、`download_failed.txt` 仅含失败篇、失败篇触发 Edge 兜底确认后仍可继续 |
 | 入库 | 编号连续、frontmatter 符合 SCHEMA.md、`文献索引.md` 同步 |
 
 量化基线(老机器 2026-08-19 试验):检索丢路 1/11 → 目标 0;双读子代理失败 7/102 → 目标 0;归档 2/34 → 目标 34/34;审计声明覆盖 10 条 → 全量;流程违约 ≥4 → 0。

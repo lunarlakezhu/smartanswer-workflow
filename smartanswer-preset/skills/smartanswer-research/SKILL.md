@@ -30,7 +30,8 @@ description: >-
 | 文献索引 | `E:\Library-Manage\new-library\文献索引.md` | 库内匹配分流 |
 | 入库目标库 | `E:\Library-Manage\new-library\`（`md\`、`pdf\`、`归档\`、`最终回答汇总\`、`SCHEMA.md`、`CHANGELOG.md`） | r1/r2 审计锁定后入库 + 终答入库（第 11、13 节）；规范见 SCHEMA.md |
 | 文献库根（默认） | `E:\Library-Manage\raw-library\HanaLibrary\` | 存放 `{主题}\r1\ r2\`；**阶段 0 向用户确认，可更换** |
-| Edge | `C:\Users\你的用户名\.dsh\.agent-presets\smartanswer\plugins\sa-config.json` 的 `edgePath` | 批量开 DOI（`sa_open_edge` 工具读取；宿主直启，不经沙箱） |
+| 文献自动下载 | `E:\deepseek-harness\packages\literature\*\lib\`（构建产物，经预设 `literature` 组挂载） | `literature_download` 工具（阶段 6）；换机器需在 dsh 仓库 `pnpm run build` 重建并核对预设绝对路径（docs/handover.md），浏览器策略另需一次 `npx playwright install chromium` |
+| Edge | `C:\Users\你的用户名\.dsh\.agent-presets\smartanswer\plugins\sa-config.json` 的 `edgePath` | 失败篇兜底批量开 DOI（`sa_open_edge` 工具读取；宿主直启，不经沙箱） |
 | Node.js ≥18 | `node --version` 在 PATH 可用即可（实测 v24） | 阶段 4 取数脚本 `reference/crossref-fetch.js` 运行时（自带 TLS，不受沙箱 SChannel 限制） |
 
 换环境：把上表路径全部对应到实际位置再开工，流程不变。本 skill 内出现的路径以本节为准。
@@ -117,21 +118,33 @@ description: >-
    ```
 2. 汇总分档，在清单里显式标记：
    - `[库内原文]`：full → 直接双读，输入=库内 md 全文
-   - `[需下载]`：其余一律（**含 notes、miss**）→ Edge 打开 + 用户下载
+   - `[需下载]`：其余一律（**含 notes、miss**）→ 阶段 6 先自动下载，失败篇再经 Edge 人工兜底
 3. **红线：精读笔记不算原文**（六维答案随调研问题漂移），不得作为双读输入，一律 `[需下载]`
 4. 更新 `round1_list.yaml` 加 tier 字段、`_progress.yaml`（stage=download）
 
-## 8. 阶段 6 · 下载与转换（闸门 2 = Edge 放行 + 下载完成确认）
+## 8. 阶段 6 · 下载与转换（自动下载优先；闸门 2 仅兜底时触发 = Edge 放行 + 下载完成确认）
 
-1. 提取全部 `[需下载]` DOI → 报告用户，**ask_user_question 获确认（`gates.edge_r1`）**后调用 `sa_open_edge` 工具批量开 Edge（宿主进程直启、不经 pwsh 沙箱；urls = 各 DOI 映射为 `https://doi.org/<doi>` 的数组）：
+1. **6a 自动下载（不设确认闸门）**：提取全部 `[需下载]` DOI，立即调用 `literature_download` 工具批量下载（搜到即下，无 Edge、无人工）：
    ```
-   sa_open_edge { urls: ["https://doi.org/10.1109/xxx", "https://doi.org/10.1038/yyy", ...] }
+   literature_download { dois: ["10.1038/...", "10.1007/...", ...], outDir: "{主题}\r1" }
    ```
-2. **用户直接把 PDF 下载到 `{主题}\r1\`**（主 agent 先告知该绝对路径，浏览器「另存为」选它）。拖进对话（.dsh-drops）仅作兜底通道，正常流程不再使用（2026-08-19 复盘：30 个 PDF 走拖入-搬运绕远路）
-3. **★ 下载完成确认（硬闸门；2026-08-20 复盘：开 Edge 15 秒后 agent 明知 0/21 到账仍推进双读，被用户手动打断）**：
-   - 打开 Edge 后**停在等待**，写 `_progress.yaml`（`gates.pdf_r1: awaiting`、`r1.downloaded`=当前计数）。goal_round 自动续跑到达时只做一次 pwsh 计数核对，未确认前不得推进阶段
-   - 用 ask_user_question 问「PDF 下载情况」（选项：全部就绪 / 部分就绪（报告数量与缺失 DOI）/ 放弃缺失篇用现有的继续）；用户答复后 pwsh 复核 `r1\*.pdf` 计数 = 用户报告数，一致才进第 4 步
-   - **计数为 0 或未经用户确认前，禁止启动 GPU 转换、禁止读双读模板组装双读**；部分就绪按用户裁决处理缺失篇
+   - **每批 ≤8 个 DOI**（工具上限 10，留超时余量）；清单更长就分多次调用，逐批落账
+   - 自动可下：Nature / Springer / PNAS / Science / IEEE / Wiley / SAGE；**Elsevier（ScienceDirect）按设计返回 manual-required**（Cloudflare 人工质询）；IOP 等未支持出版商直接 failed
+   - 结果逐篇给出 `ok | failed | manual-required` + 路径/原因；**失败是终态行，不盲目重试同一出版商**（重试前先看原因：无权限/无 OA 不会因重试改变）
+   - **单次调用超时**（工具整体 600s）：先 pwsh 数 `{主题}\r1\*.pdf`，对「清单 − 已有 PDF」的缺失 DOI 重新调用，已到账的不重复下
+2. **6b 落账（磁盘口径）**：
+   - pwsh 复核 `{主题}\r1\*.pdf` 计数，`round1_list.yaml` 逐篇在 note 标注 `自动下载`（含相对 PDF 文件名）或 `待人工`（含原因）
+   - `_progress.yaml`：`r1.downloaded` = 磁盘 PDF 计数；failed + manual-required 的 DOI 逐行写入 `{主题}\r1\download_failed.txt`（每行一个 DOI，可直接作为下次重下清单）
+   - **全部成功 → `gates.edge_r1` 与 `gates.pdf_r1` 直接落 `confirmed`（自动下载视同已放行、已确认），跳过 6c**，向用户一行汇报成功清单后进第 4 步 GPU 转换
+3. **6c 人工兜底（仅当 download_failed.txt 非空）**——沿用原 Edge 流程，只处理失败篇：
+   - 报告失败清单（DOI + 原因），**ask_user_question 获确认（`gates.edge_r1`）**后调用 `sa_open_edge` 批量开失败篇（宿主进程直启、不经 pwsh 沙箱；urls = `https://doi.org/<doi>`）：
+     ```
+     sa_open_edge { urls: ["https://doi.org/10.1016/xxx", ...] }
+     ```
+   - **用户把这几篇的 PDF 存到 `{主题}\r1\`**（主 agent 先告知绝对路径）；拖进对话（.dsh-drops）仅作兜底通道
+   - **★ 下载完成确认（硬闸门；2026-08-20 复盘：0/21 到账仍推进双读被用户打断）**：打开 Edge 后停在等待，写 `_progress.yaml`（`gates.pdf_r1: awaiting`）。goal_round 自动续跑到达时只做一次 pwsh 计数核对，未确认前不得推进
+   - ask_user_question 问「PDF 下载情况」（全部就绪 / 部分就绪（报告数量与缺失 DOI）/ 放弃缺失篇用现有的继续）；答复后 pwsh 复核计数一致才进第 4 步；**用户放弃的篇目从清单标注中落注（放弃原因），后续引用相应减少**
+   - **计数为 0 或未经用户确认前，禁止启动 GPU 转换、禁止读双读模板组装双读**
 4. **GPU 转换**（主 agent 直接跑，不用用户拖 bat）：
    ```powershell
    python -u "E:\PDF2md\pdf2md_gpu.py" "E:\Library-Manage\raw-library\HanaLibrary\{主题}\r1\*.pdf" -o "E:\Library-Manage\raw-library\HanaLibrary\{主题}\r1\_text"
@@ -141,8 +154,8 @@ description: >-
    - `job_output` 读后台 job：看 `[N/M] [完成] xxx.pdf` 行
    - 文件计数（最可靠）：`r1\_text\*.md` 数 ÷ `r1\*.pdf` 数
    - `nvidia-smi` 心跳：CUDA 进程是否在忙（首次初始化显卡/模型需几十秒，无增长不算卡死）
-6. 终检：成功数=PDF 数；**若有失败，不做任何自动兜底**——向用户报告失败清单与原因（日志尾部有），由用户手动处理（重新下载 PDF 或自行拖 bat 转换），处理完补检
-7. **产物去向汇报（固定步骤，不得省略）**：向用户报告一行——源 PDF 保留在 `r1\`、Markdown 在 `r1\_text\`（计数 N/M）、失败清单（如有）；之后写 `_progress.yaml`（stage=dualread、gates.pdf_r1=confirmed、r1.downloaded=PDF 计数）
+6. 终检：成功数=PDF 数；**若有失败，不做任何自动兜底**——向用户报告失败清单与原因（转换日志尾部有），由用户手动处理（重新下载 PDF 或自行拖 bat 转换），处理完补检
+7. **产物去向汇报（固定步骤，不得省略）**：向用户报告一行——自动下载 N 篇 / 人工兜底 M 篇 / 放弃 K 篇，源 PDF 保留在 `r1\`、Markdown 在 `r1\_text\`（计数 N+M/K 总比）、失败清单（如有）；之后写 `_progress.yaml`（stage=dualread、gates.pdf_r1=confirmed、r1.downloaded=PDF 计数）
 
 ## 9. 阶段 7 · 双读精读
 
@@ -199,7 +212,7 @@ description: >-
 
 1. 从 📖 综述归档挖候选：≥2 篇共同引用优先 / 独立成段讨论 ≥3 句次之 / **禁仅凭标题**
 2. 逐篇核实 + 摘要判断，与第一轮去重（DOI 标准化：去 `https://doi.org/` 前缀、统一大小写）
-3. 用户确认后用 `sa_open_edge` 再开一轮 Edge（同闸门 2 完整两问：Edge 放行 `gates.edge_r2` + **下载完成确认 `gates.pdf_r2`**，PDF 存 `r2\`）→ GPU 转换（同上）→ 双读（复用阶段 7，id 换 `r2-{NN}`）→ `r2-{NN}_*.md` 全量归档
+3. 下载同阶段 6 的三段式：先 `literature_download` 批量自动下载到 `r2\`（每批 ≤8、落账、写 `r2\download_failed.txt`）；全部成功则 `gates.edge_r2`/`gates.pdf_r2` 直接落 `confirmed` 跳过 Edge，有失败篇才走 `sa_open_edge` 兜底（同闸门 2 完整两问：Edge 放行 `gates.edge_r2` + **下载完成确认 `gates.pdf_r2`**）→ GPU 转换（同上）→ 双读（复用阶段 7，id 换 `r2-{NN}`）→ `r2-{NN}_*.md` 全量归档
 4. **增量审计**：audit.js 只查新增声明 + **防回退**（已删内容重现按 🚫）+ 覆盖度 pwsh 复检 → 🚫=0 → 写 `r2\audit_report_r2.md`（结论-证据对照表同格式）
 5. 写 `r2\round2_list.yaml`（round1 同格式；雪球候选经用户确认后即回填元数据，tier 按对索引的 DOI 匹配——它是 r2 入库的数据源）
 6. **r2 入库（第 11 节，round=r2）**：跑 library-archive.js → pwsh 复核 → 写 `_progress.yaml`（stage=final、r2.libArchived=磁盘计数）
@@ -245,6 +258,7 @@ description: >-
 13. **工作流回传体积红线**：多路汇总类 workflow 的子代理 structured_output 只回下游真正消费的紧凑字段——落盘阈值约 50KB（内联+spill 双截断，2026-08-20 实测 187KB 回传丢 8 路）；大字段（摘要等）一律由后续阶段的落盘预取补齐
 14. **禁止用 pwsh 开 Edge**（2026-08 试验复盘：沙箱 pwsh 跑 `& msedge.exe <23 个 URL>` 返回 exit 0 但浏览器没开——沙箱 kill-on-close Job 在 pwsh 退出瞬间杀掉整棵进程树，受限 token 还阻断向既有 Edge 实例的 IPC 交接，且命令假成功、无任何 denial 信号）；开浏览器一律走 `sa_open_edge` 工具（宿主进程 detached+unref 直启，不经沙箱，Edge 路径取 sa-config.json 的 edgePath）
 15. **sa-panel 的 stage 枚举是固定的**（boot|decompose|search|match|download|dualread|audit|snowball|final，面板按 STAGE_RANK 映射步骤条）：入库不引入新 stage 值，进度用 `r1.libArchived`/`r2.libArchived` 计数表达——写入未知 stage 值会让面板步骤条降级为原文本
+16. **literature_download 是阶段 6 的第一通道，Edge 只兜底**（2026-08-31 起自动下载）：每批 ≤8 个 DOI（工具上限 10，留整体 600s 超时余量）；结果行是终态——Elsevier/ScienceDirect 恒为 manual-required（Cloudflare 人工质询，按设计不走自动），无权限/非 OA 的 failed 不会因重试改变，禁止对同一出版商盲目重试；调用超时就数磁盘已有 PDF、只对缺失 DOI 补调；工具报「不可用」（如换机未部署）→ 整体回退原 Edge 手动流程并告知用户
 
 ## 16. 产物闸门（执行保证）
 
@@ -252,6 +266,6 @@ description: >-
 2. 归档数 = 论文数（r1、r2 各自全量）
 3. 审计报告 🚫=0；二轮无回退
 4. `最终回答.html` 存在才汇报
-5. 人工闸门一个不少：拆解确认 ×1、Edge 放行 ×2、**PDF 下载完成确认 ×2（r1/r2 各一次：ask_user_question + pwsh 计数复核；2026-08-20 前"PDF 下载 ×2"只写在纸面从未作为交互执行，agent 曾在 0/21 到账时推进双读被用户打断）**
+5. 人工闸门一个不少：拆解确认 ×1；Edge 放行与 **PDF 下载完成确认 ×2（r1/r2 各一次）仅在自动下载有失败篇、需要 Edge 兜底时触发**（ask_user_question + pwsh 计数复核）；自动下载全部成功时两 gate 直接落 `confirmed`（2026-08-20 前"PDF 下载 ×2"只写在纸面从未作为交互执行，agent 曾在 0/21 到账时推进双读被用户打断——自动下载时代该闸门防的是「失败篇未兜底确认就推进」）
 6. `_progress.yaml` 的 papers/downloaded/archived 等计数字段只能来自磁盘计数命令的输出，禁止凭记忆或预估填写（复盘教训：曾谎报 archived:34，磁盘实为 2）
 7. **入库完成才算轮结束**（第 11 节）：索引新增行数、CHANGELOG 留痕、`md\ pdf\ 归档\` 文件计数三方一致（全部磁盘计数）；入库 warnings 清零或已逐条处理并告知用户；终答入库（第 13 节第 5 步）在汇报前完成

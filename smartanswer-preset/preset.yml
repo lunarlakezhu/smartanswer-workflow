@@ -1,2 +1,2 @@
 name: SmartAnswer 文献调研
-description: 专职文献调研 Agent。预装 SmartAnswer 全流程（拆解→检索→匹配→下载转换→双读→审计→入库 new-library→雪球→终答）、研究员人设与六个人工闸门；环境绑定工具 sa_crossref_fetch / sa_convert（路径集中在 sa-config.json）；skill 与流程权威内置，开箱即用。
+description: 专职文献调研 Agent。预装 SmartAnswer 全流程（拆解→检索→匹配→自动下载转换→双读→审计→入库 new-library→雪球→终答）、研究员人设与人工闸门；检索定稿后经 literature_download 自动下载 PDF（Elsevier 等失败篇回落 Edge 人工兜底）；环境绑定工具 sa_crossref_fetch / sa_convert（路径集中在 sa-config.json）；skill 与流程权威内置，开箱即用。
